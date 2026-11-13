@@ -19,7 +19,8 @@ export const register: Register = on => {
       const ts = full.map(r => Date.parse(r.resetsAt!)).filter(Number.isFinite)
       // unparseable reset time: fail closed, pause an hour and re-check
       const t = ts.length ? Math.max(...ts) : (await $.clock.now()) + 3_600_000
-      await $.store.set(KEY, t)
+      const held = Number((await $.store.get(KEY)) ?? 0) // monotonic: a pause never shortens
+      if (t > (await $.clock.now())) await $.store.set(KEY, Math.max(t, Number.isFinite(held) ? held : 0))
       show($, t)
       $.ui.toast(`Usage full: agents paused until ${new Date(t).toLocaleTimeString()}`)
     }
@@ -29,8 +30,8 @@ export const register: Register = on => {
   // The gate: no model request leaves while paused, so nothing is billed.
   on('http.fetch', async ($, e, next) => {
     // only the engine's own model requests are gated (gateways keep the /v1/messages path)
-    let path = ''
-    try { path = new URL(e.url).pathname } catch { /* unparseable: not a model URL */ }
+    let path = e.url // unparseable: match the raw string, so the pause check still applies
+    try { path = new URL(e.url).pathname } catch { /* keep raw */ }
     if (next.origin.plugin !== 'engine' || !path.includes('/v1/messages')) return next(e)
     const t = await until($)
     show($, t)
