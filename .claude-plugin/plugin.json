@@ -1,0 +1,1 @@
+{ "name": "usage-pause", "version": "0.1.0", "description": "Blocks all model requests (main and subagents) once a usage window is full, so no extra credits are spent, until the window resets." }

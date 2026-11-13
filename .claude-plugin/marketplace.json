@@ -1,0 +1,5 @@
+{
+  "name": "usage-pause",
+  "owner": { "name": "glen0105-del" },
+  "plugins": [{ "name": "usage-pause", "source": "./" }]
+}

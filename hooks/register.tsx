@@ -1,0 +1,34 @@
+import type { Register } from 'claude-code'
+
+const LIMIT = 99 // percent of a window treated as "full"; lower it for a safety margin
+const KEY = 'pausedUntil'
+
+export const register: Register = on => {
+  const until = async ($: any): Promise<number> => {
+    const t = Number((await $.store.get(KEY)) ?? 0)
+    return t > (await $.clock.now()) ? t : 0
+  }
+
+  const show = ($: any, t: number) =>
+    $.ui.status(t ? `⏸ usage full, resumes ${new Date(t).toLocaleTimeString()}` : undefined)
+
+  // Every response reports the windows; a full one arms the pause until its reset.
+  on('session.measure', async ($, e, next) => {
+    const full = e.rateLimits.filter(r => r.percentUsed >= LIMIT && r.resetsAt)
+    if (full.length) {
+      const t = Math.max(...full.map(r => Date.parse(r.resetsAt!)))
+      await $.store.set(KEY, t)
+      show($, t)
+      $.ui.toast(`Usage full: agents paused until ${new Date(t).toLocaleTimeString()}`)
+    }
+    return next(e)
+  })
+
+  // The gate: no model request leaves while paused, so nothing is billed.
+  on('http.fetch', async ($, e, next) => {
+    if (next.origin.plugin !== 'engine' || !e.url.includes('/v1/messages')) return next(e)
+    const t = await until($)
+    show($, t)
+    return t ? { deny: `usage-pause: usage window full until ${new Date(t).toLocaleString()}` } : next(e)
+  }).catch(($, e, next) => (next.called ? next(e) : next(e)))
+}
