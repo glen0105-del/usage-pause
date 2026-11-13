@@ -2,11 +2,13 @@ import type { Register } from 'claude-code'
 
 const LIMIT = 99 // percent of a window treated as "full"; lower it for a safety margin
 const KEY = 'pausedUntil'
+const MAX = 7 * 24 * 3_600_000 + 3_600_000 // longest real window (7 days) plus slack; anything later is bogus
 
 export const register: Register = on => {
   const until = async ($: any): Promise<number> => {
     const t = Number((await $.store.get(KEY)) ?? 0)
-    return Number.isFinite(t) && t > (await $.clock.now()) ? t : 0
+    const now = await $.clock.now()
+    return Number.isFinite(t) && t > now && t <= now + MAX ? t : 0
   }
 
   const show = ($: any, t: number) =>
@@ -18,9 +20,11 @@ export const register: Register = on => {
     if (full.length) {
       const ts = full.map(r => Date.parse(r.resetsAt!)).filter(Number.isFinite)
       // unparseable reset time: fail closed, pause an hour and re-check
-      const t = ts.length ? Math.max(...ts) : (await $.clock.now()) + 3_600_000
+      const now = await $.clock.now()
+      const t = Math.min(ts.length ? Math.max(...ts) : now + 3_600_000, now + MAX)
       const held = Number((await $.store.get(KEY)) ?? 0) // monotonic: a pause never shortens
-      if (t > (await $.clock.now())) await $.store.set(KEY, Math.max(t, Number.isFinite(held) ? held : 0))
+      const ok = Number.isFinite(held) && held > now && held <= now + MAX ? held : 0
+      if (t > now) await $.store.set(KEY, Math.max(t, ok))
       show($, t)
       $.ui.toast(`Usage full: agents paused until ${new Date(t).toLocaleTimeString()}`)
     }
